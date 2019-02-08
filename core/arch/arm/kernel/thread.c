@@ -33,6 +33,7 @@
 #include <tee/tee_fs_rpc.h>
 #include <trace.h>
 #include <util.h>
+#include <crypto/crypto.h>
 
 #include "thread_private.h"
 
@@ -74,6 +75,9 @@ struct thread_ctx threads[CFG_NUM_THREADS];
 
 struct thread_core_local thread_core_local[CFG_TEE_CORE_NB_CORE] __nex_bss;
 
+static uint32_t start_canary_value = 0xdededede;
+static uint32_t end_canary_value = 0xabababab;
+
 #ifdef CFG_WITH_STACK_CANARIES
 #ifdef ARM32
 #define STACK_CANARY_SIZE	(4 * sizeof(uint32_t))
@@ -81,8 +85,8 @@ struct thread_core_local thread_core_local[CFG_TEE_CORE_NB_CORE] __nex_bss;
 #ifdef ARM64
 #define STACK_CANARY_SIZE	(8 * sizeof(uint32_t))
 #endif
-#define START_CANARY_VALUE	0xdededede
-#define END_CANARY_VALUE	0xabababab
+#define START_CANARY_VALUE	start_canary_value
+#define END_CANARY_VALUE	end_canary_value
 #define GET_START_CANARY(name, stack_num) name[stack_num][0]
 #define GET_END_CANARY(name, stack_num) \
 	name[stack_num][sizeof(name[stack_num]) / sizeof(uint32_t) - 1]
@@ -176,6 +180,27 @@ static void init_canaries(void)
 #endif
 #endif/*CFG_WITH_STACK_CANARIES*/
 }
+
+/*
+ * Kernel stack overflow detection uses fixed value
+*/
+TEE_Result reinit_canaries(void)
+{
+	TEE_Result res;
+
+	res = crypto_rng_read((void *)(&start_canary_value), sizeof(uint32_t));
+	if (res != TEE_SUCCESS)
+		return res;
+
+	res = crypto_rng_read((void *)(&end_canary_value), sizeof(uint32_t));
+	if (res != TEE_SUCCESS)
+		return res;
+
+	init_canaries();
+
+	return TEE_SUCCESS;
+}
+service_init_late(reinit_canaries);
 
 #define CANARY_DIED(stack, loc, n) \
 	do { \
